@@ -272,19 +272,9 @@ function generatePacScript(rules: string[], proxyPort: number): string {
         // Lowercase rule for case-insensitive comparisons
         rule = rule.toLowerCase();
         
-        // Check if rule contains wildcard '*'
-        if (rule.indexOf('*') !== -1) {
-          if (shExpMatch(host, rule) || shExpMatch(url, rule)) {
-            return 'SOCKS5 127.0.0.1:${proxyPort}; SOCKS 127.0.0.1:${proxyPort}; DIRECT';
-          }
-        } else {
-          // Standard domain or exact matching
-          // - exact host match (e.g. facebook.com)
-          // - subdomain match (e.g. sub.facebook.com using *.facebook.com pattern)
-          // - general substring index match in URL (e.g. path matches)
-          if (host === rule || shExpMatch(host, '*.' + rule) || url.toLowerCase().indexOf(rule) !== -1) {
-            return 'SOCKS5 127.0.0.1:${proxyPort}; SOCKS 127.0.0.1:${proxyPort}; DIRECT';
-          }
+        // Match exact host or subdomain (e.g. facebook.com or *.facebook.com)
+        if (host === rule || shExpMatch(host, '*.' + rule)) {
+          return 'SOCKS5 127.0.0.1:${proxyPort}; SOCKS 127.0.0.1:${proxyPort}; DIRECT';
         }
       }
       
@@ -295,40 +285,15 @@ function generatePacScript(rules: string[], proxyPort: number): string {
 }
 
 /**
- * Utility helper to match a host against a wildcard pattern or exact domain.
- */
-function matchesPattern(host: string, pattern: string): boolean {
-  if (pattern === host) return true;
-  if (pattern.includes("*")) {
-    const regexStr = "^" +
-      pattern.split("*").map((s) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"))
-        .join(
-          ".*",
-        ) +
-      "$";
-    return new RegExp(regexStr, "i").test(host);
-  }
-  return false;
-}
-
-/**
  * Unified matching logic mirroring standard PAC script rules.
- * Handles exact matches, wildcards, and subdomain matching (e.g. www.facebook.com matches facebook.com).
+ * Handles exact matches and subdomain matching (e.g. www.facebook.com matches facebook.com).
  */
 function isDomainMatched(host: string, pattern: string): boolean {
   const normalizedHost = host.toLowerCase();
   const normalizedPattern = pattern.toLowerCase();
 
-  if (normalizedPattern === normalizedHost) return true;
-
-  if (normalizedPattern.includes("*")) {
-    return matchesPattern(normalizedHost, normalizedPattern);
-  }
-
-  // Subdomain match: check if host ends with "." + pattern (e.g. www.facebook.com matches facebook.com)
-  if (normalizedHost.endsWith("." + normalizedPattern)) return true;
-
-  return false;
+  return normalizedHost === normalizedPattern ||
+    normalizedHost.endsWith("." + normalizedPattern);
 }
 
 // Listen for network connection errors to detect blocked subdomains dynamically

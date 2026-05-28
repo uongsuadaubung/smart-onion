@@ -123,21 +123,7 @@ export const appStoreActions = {
             const pattern = rule.pattern.toLowerCase();
             const host = domain.toLowerCase();
 
-            if (pattern === host) return true;
-
-            if (pattern.includes("*")) {
-              const regexStr = "^" +
-                pattern.split("*").map((s) =>
-                  s.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
-                ).join(
-                  ".*",
-                ) + "$";
-              return new RegExp(regexStr, "i").test(host);
-            }
-
-            if (host.endsWith("." + pattern)) return true;
-
-            return false;
+            return host === pattern || host.endsWith("." + pattern);
           });
 
           setAppStore("quickAddVisible", !alreadyMatched);
@@ -373,6 +359,15 @@ export const appStoreActions = {
       try {
         await setProxySettings({ rules: nextRules });
         setAppStore("quickAddVisible", false);
+
+        // Reload current active tab so the new proxy rule takes effect immediately!
+        const tabs = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tabs && tabs[0] && tabs[0].id !== undefined) {
+          await chrome.tabs.reload(tabs[0].id);
+        }
       } catch (err) {
         console.error("Failed to save quick add rule to storage:", err);
       }
