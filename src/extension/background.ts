@@ -12,6 +12,13 @@ import {
   RuleItemSchema,
   setBlockedSubdomains,
 } from "@/shared/storage.ts";
+declare const browser: {
+  proxy: {
+    settings: {
+      set: (details: { value: unknown }) => Promise<void>;
+    };
+  };
+};
 
 // Initialize default settings upon installation
 chrome.runtime.onInstalled.addListener(async () => {
@@ -90,9 +97,6 @@ applyProxySettings().catch((err) => {
   console.error("Failed to apply initial proxy settings on startup:", err);
 });
 
-/**
- * Compiles the user-defined rules and master toggle status into a PAC script and applies it.
- */
 async function applyProxySettings(): Promise<void> {
   try {
     const data = await getProxySettings();
@@ -114,10 +118,16 @@ async function applyProxySettings(): Promise<void> {
       }
     }
 
+    const isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
+
     if (!isEnabled || activeRules.length === 0) {
       // Clear proxy settings completely to fall back to system defaults / other extensions politely.
       try {
-        await chrome.proxy.settings.clear({ scope: "regular" });
+        if (isFirefox) {
+          await browser.proxy.settings.set({ value: { proxyType: "none" } });
+        } else {
+          await chrome.proxy.settings.clear({ scope: "regular" });
+        }
         console.log(
           "Tor Bridge disabled. Proxy settings cleared successfully.",
         );
@@ -131,25 +141,41 @@ async function applyProxySettings(): Promise<void> {
     // Compile rules into a PAC script string using only active rules
     const pacScriptString = generatePacScript(activeRules, data.proxyPort);
 
-    const config = {
-      mode: "pac_script" as const,
-      pacScript: {
-        data: pacScriptString,
-      },
-    };
-
-    try {
-      await chrome.proxy.settings.set({ value: config, scope: "regular" });
-      console.log(
-        "Tor Bridge active. Dynamic PAC script applied successfully with",
-        activeRules.length,
-        "active rules (out of",
-        rules.length,
-        "total rules).",
-      );
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      console.error("Failed to set dynamic PAC proxy:", error.message);
+    if (isFirefox) {
+      const config = {
+        proxyType: "autoConfig",
+        autoConfigUrl: "data:application/x-javascript-config," +
+          encodeURIComponent(pacScriptString),
+      };
+      try {
+        await browser.proxy.settings.set({ value: config });
+        console.log(
+          "Tor Bridge active. Firefox PAC script applied successfully with",
+          activeRules.length,
+          "active rules.",
+        );
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error("Failed to set Firefox PAC proxy:", error.message);
+      }
+    } else {
+      const config = {
+        mode: "pac_script" as const,
+        pacScript: {
+          data: pacScriptString,
+        },
+      };
+      try {
+        await chrome.proxy.settings.set({ value: config, scope: "regular" });
+        console.log(
+          "Tor Bridge active. Chrome dynamic PAC script applied successfully with",
+          activeRules.length,
+          "active rules.",
+        );
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error("Failed to set Chrome dynamic PAC proxy:", error.message);
+      }
     }
   } catch (err) {
     console.error("Failed to fetch proxy settings from storage:", err);
