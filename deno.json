@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "npm:solid-js",
+    "lib": ["dom", "dom.iterable", "deno.ns"],
+    "strict": true,
+    "types": [
+      "npm:@types/chrome"
+    ],
+    "verbatimModuleSyntax": true
+  },
+  "imports": {
+    "fs": "node:fs",
+    "path": "node:path",
+    "solid-js": "npm:solid-js@^1.9.3",
+    "solid-js/web": "npm:solid-js@^1.9.3/web",
+    "esbuild": "npm:esbuild@^0.24.0",
+    "esbuild-plugin-solid": "npm:esbuild-plugin-solid@^0.6.0",
+    "sass": "npm:sass@^1.77.0",
+    "adm-zip": "npm:adm-zip@^0.5.10",
+    "zod": "npm:zod@^3.23.8",
+    "@/": "./src/"
+  },
+  "tasks": {
+    "build": "deno run --node-modules-dir=auto -A build.ts",
+    "bump-version": "deno run -A version.ts"
+  },
+  "lint": {
+    "rules": {
+      "include": [
+        "no-explicit-any"
+      ]
+    },
+    "exclude": [
+      "node_modules",
+      "dist"
+    ]
+  },
+  "fmt": {
+    "exclude": [
+      "node_modules",
+      "dist"
+    ],
+    "semiColons": true,
+    "singleQuote": false
+  }
+}
