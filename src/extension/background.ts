@@ -14,11 +14,78 @@ import {
 } from "@/shared/storage.ts";
 declare const browser: {
   proxy: {
-    settings: {
-      set: (details: { value: unknown }) => Promise<void>;
+    onRequest: {
+      addListener: (
+        callback: (requestInfo: { url: string }) => {
+          type: string;
+          host?: string;
+          port?: number;
+          proxyDNS?: boolean;
+        },
+        filter: { urls: string[] },
+      ) => void;
     };
   };
 };
+
+const isFirefox = typeof navigator !== "undefined" &&
+  navigator.userAgent.toLowerCase().includes("firefox");
+
+let activeFirefoxRules: string[] = [];
+let firefoxProxyPort = 9050;
+let firefoxIsEnabled = false;
+
+// In Firefox, we listen to requests and proxy them natively if they match rules
+function handleFirefoxProxyRequest(requestInfo: { url: string }) {
+  if (!firefoxIsEnabled || activeFirefoxRules.length === 0) {
+    return { type: "direct" };
+  }
+
+  const urlString = requestInfo.url;
+  let urlObj;
+  try {
+    urlObj = new URL(urlString);
+  } catch {
+    return { type: "direct" };
+  }
+  const host = urlObj.hostname.toLowerCase();
+
+  // SPECIAL INTERNAL RULE: Always route health check site through Tor to verify connection health
+  if (host === "icanhazip.com" || host === "www.icanhazip.com") {
+    return {
+      type: "socks",
+      host: "127.0.0.1",
+      port: firefoxProxyPort,
+      proxyDNS: true,
+    };
+  }
+
+  // Check if host matches active rules
+  for (const rule of activeFirefoxRules) {
+    if (!rule) continue;
+    if (
+      isDomainMatched(host, rule) ||
+      isDomainMatched(urlString, rule) ||
+      urlString.toLowerCase().includes(rule.toLowerCase())
+    ) {
+      return {
+        type: "socks",
+        host: "127.0.0.1",
+        port: firefoxProxyPort,
+        proxyDNS: true,
+      };
+    }
+  }
+
+  return { type: "direct" };
+}
+
+if (isFirefox) {
+  browser.proxy.onRequest.addListener(handleFirefoxProxyRequest, {
+    urls: ["<all_urls>"],
+  });
+  console.log("Firefox native proxy.onRequest listener registered.");
+}
 
 // Initialize default settings upon installation
 chrome.runtime.onInstalled.addListener(async () => {
@@ -118,16 +185,29 @@ async function applyProxySettings(): Promise<void> {
       }
     }
 
-    const isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
+    if (isFirefox) {
+      if (!isEnabled || activeRules.length === 0) {
+        firefoxIsEnabled = false;
+        activeFirefoxRules = [];
+        console.log("Tor Bridge disabled in Firefox.");
+      } else {
+        firefoxIsEnabled = true;
+        activeFirefoxRules = activeRules;
+        firefoxProxyPort = data.proxyPort;
+        console.log(
+          "Tor Bridge active in Firefox. Updated request listener with",
+          activeRules.length,
+          "active rules on port",
+          data.proxyPort,
+        );
+      }
+      return;
+    }
 
     if (!isEnabled || activeRules.length === 0) {
       // Clear proxy settings completely to fall back to system defaults / other extensions politely.
       try {
-        if (isFirefox) {
-          await browser.proxy.settings.set({ value: { proxyType: "none" } });
-        } else {
-          await chrome.proxy.settings.clear({ scope: "regular" });
-        }
+        await chrome.proxy.settings.clear({ scope: "regular" });
         console.log(
           "Tor Bridge disabled. Proxy settings cleared successfully.",
         );
@@ -141,41 +221,22 @@ async function applyProxySettings(): Promise<void> {
     // Compile rules into a PAC script string using only active rules
     const pacScriptString = generatePacScript(activeRules, data.proxyPort);
 
-    if (isFirefox) {
-      const config = {
-        proxyType: "autoConfig",
-        autoConfigUrl: "data:application/x-javascript-config," +
-          encodeURIComponent(pacScriptString),
-      };
-      try {
-        await browser.proxy.settings.set({ value: config });
-        console.log(
-          "Tor Bridge active. Firefox PAC script applied successfully with",
-          activeRules.length,
-          "active rules.",
-        );
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        console.error("Failed to set Firefox PAC proxy:", error.message);
-      }
-    } else {
-      const config = {
-        mode: "pac_script" as const,
-        pacScript: {
-          data: pacScriptString,
-        },
-      };
-      try {
-        await chrome.proxy.settings.set({ value: config, scope: "regular" });
-        console.log(
-          "Tor Bridge active. Chrome dynamic PAC script applied successfully with",
-          activeRules.length,
-          "active rules.",
-        );
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        console.error("Failed to set Chrome dynamic PAC proxy:", error.message);
-      }
+    const config = {
+      mode: "pac_script" as const,
+      pacScript: {
+        data: pacScriptString,
+      },
+    };
+    try {
+      await chrome.proxy.settings.set({ value: config, scope: "regular" });
+      console.log(
+        "Tor Bridge active. Chrome dynamic PAC script applied successfully with",
+        activeRules.length,
+        "active rules.",
+      );
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error("Failed to set Chrome dynamic PAC proxy:", error.message);
     }
   } catch (err) {
     console.error("Failed to fetch proxy settings from storage:", err);
