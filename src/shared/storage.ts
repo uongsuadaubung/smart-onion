@@ -68,52 +68,13 @@ export async function initializeDefaultSettings(): Promise<void> {
 }
 
 /**
- * Resolves a hostname to its root domain (e.g. sub.facebook.com -> facebook.com).
- * Correctly handles common multi-part Vietnamese and international second-level TLDs.
+ * Resolves a hostname to its domain, preserving subdomains while stripping any 'www.' prefix.
+ * e.g. mail.google.com -> mail.google.com, www.google.com -> google.com
  */
 export function getRootDomain(host: string): string {
-  const parts = host.toLowerCase().split(".");
-  if (parts.length <= 2) return host;
-
-  // Common double country suffixes
-  const commonDoubleSuffixes = [
-    "co.uk",
-    "me.uk",
-    "org.uk",
-    "com.vn",
-    "net.vn",
-    "org.vn",
-    "edu.vn",
-    "gov.vn",
-    "com.cn",
-    "net.cn",
-    "org.cn",
-    "gov.cn",
-    "com.tw",
-    "net.tw",
-    "org.tw",
-    "com.hk",
-    "net.hk",
-    "org.hk",
-    "com.sg",
-    "net.sg",
-    "org.sg",
-    "com.au",
-    "net.au",
-    "org.au",
-    "co.jp",
-    "or.jp",
-    "ne.jp",
-    "com.br",
-    "net.br",
-    "org.br",
-  ];
-
-  const lastTwo = parts.slice(-2).join(".");
-
-  if (commonDoubleSuffixes.includes(lastTwo)) {
-    return parts.slice(-3).join(".");
+  const normalized = host.toLowerCase().trim();
+  if (normalized.startsWith("www.")) {
+    return normalized.substring(4);
   }
-
-  return lastTwo;
+  return normalized;
 }
