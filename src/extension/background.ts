@@ -5,13 +5,12 @@
 
 import { z } from "zod";
 import {
-  getBlockedSubdomains,
   getProxySettings,
   getRootDomain,
   initializeDefaultSettings,
-  RuleItemSchema,
-  setBlockedSubdomains,
+  setProxySettings,
 } from "@/shared/storage.ts";
+
 declare const browser: {
   proxy: {
     onRequest: {
@@ -106,56 +105,6 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   ) {
     console.log("Settings changed. Re-applying proxy rules...");
     await applyProxySettings();
-
-    // Clean up blocked subdomains that have been added to rules!
-    if (changes.rules && changes.rules.newValue) {
-      try {
-        const nextRules = z.array(RuleItemSchema).parse(changes.rules.newValue);
-        const rulePatterns = nextRules.flatMap((r) => [
-          r.pattern,
-          ...(r.children || []).map((c) => c.pattern),
-        ]);
-
-        const blockedSubdomains = await getBlockedSubdomains();
-
-        let hasChanges = false;
-        const updatedBlocked: Record<string, string[]> = {};
-
-        for (const [parent, children] of Object.entries(blockedSubdomains)) {
-          // If the parent pattern itself is no longer in rules, discard the error entries for it
-          const parentStillExists = nextRules.some((r) => r.pattern === parent);
-          if (!parentStillExists) {
-            hasChanges = true;
-            continue;
-          }
-
-          // Filter out any child domain that is now matched by any active rule pattern
-          const filteredChildren = children.filter((child) =>
-            !rulePatterns.some((pattern) => isDomainMatched(child, pattern))
-          );
-
-          if (filteredChildren.length !== children.length) {
-            hasChanges = true;
-          }
-
-          if (filteredChildren.length > 0) {
-            updatedBlocked[parent] = filteredChildren;
-          } else {
-            hasChanges = true;
-          }
-        }
-
-        if (hasChanges) {
-          await setBlockedSubdomains(updatedBlocked);
-          console.log("Cleaned up blockedSubdomains storage successfully.");
-        }
-      } catch (err) {
-        console.error(
-          "Failed to clean up blocked subdomains on rules change:",
-          err,
-        );
-      }
-    }
   }
 });
 
@@ -170,18 +119,11 @@ async function applyProxySettings(): Promise<void> {
     const isEnabled = data.isEnabled;
     const rules = data.rules;
 
-    // Filter rules that are toggled on (active) and extract all active parent and child patterns
+    // Filter rules that are toggled on (active)
     const activeRules: string[] = [];
     for (const rule of rules) {
       if (rule.active) {
         activeRules.push(rule.pattern);
-        if (rule.children) {
-          for (const child of rule.children) {
-            if (child.active) {
-              activeRules.push(child.pattern);
-            }
-          }
-        }
       }
     }
 
@@ -221,8 +163,8 @@ async function applyProxySettings(): Promise<void> {
     // Compile rules into a PAC script string using only active rules
     const pacScriptString = generatePacScript(activeRules, data.proxyPort);
 
-    const config = {
-      mode: "pac_script" as const,
+    const config: chrome.proxy.ProxyConfig = {
+      mode: "pac_script",
       pacScript: {
         data: pacScriptString,
       },
@@ -296,10 +238,10 @@ function isDomainMatched(host: string, pattern: string): boolean {
     normalizedHost.endsWith("." + normalizedPattern);
 }
 
-// Listen for network connection errors to detect blocked subdomains dynamically
+// Listen for network connection errors to detect blocked domains dynamically
 chrome.webRequest.onErrorOccurred.addListener(async (details) => {
-  // We only track resources initiated by active browser tabs (having initiator origin and valid tabId)
-  if (details.tabId < 0 || !details.initiator) return;
+  // Only target main frame pages to avoid sub-resources triggering auto-whitelisting
+  if (details.type !== "main_frame") return;
 
   // Exclude client-side cancellations and standard adblocker actions
   const excludedErrors = [
@@ -311,53 +253,142 @@ chrome.webRequest.onErrorOccurred.addListener(async (details) => {
   if (excludedErrors.some((err) => details.error.includes(err))) return;
 
   try {
-    const initiatorUrl = new URL(details.initiator);
-    const initiatorHost = initiatorUrl.hostname.toLowerCase();
-
     const targetUrl = new URL(details.url);
     const targetHostRaw = targetUrl.hostname.toLowerCase();
     const targetHost = getRootDomain(targetHostRaw);
 
-    // Skip recording if the subresource matches or resolves to the parent domain
-    if (
-      initiatorHost === targetHost || isDomainMatched(initiatorHost, targetHost)
-    ) return;
+    // Skip special localhost or empty patterns
+    if (targetHost === "localhost" || targetHost === "127.0.0.1") return;
 
     const settings = await getProxySettings();
+    if (!settings.autoPilot) return;
 
-    // Verify if the parent origin is currently matched by an active rule in our settings
-    const matchedParentRule = settings.rules.find((r) =>
-      r.active && isDomainMatched(initiatorHost, r.pattern)
+    // Verify if this target domain is already handled by any existing rule
+    const targetIsAlreadyRule = settings.rules.some((r) =>
+      isDomainMatched(targetHost, r.pattern)
     );
-
-    if (!matchedParentRule) return;
-
-    // Check if this target domain is already handled by any of our existing parent or child rules
-    const targetIsAlreadyRule = settings.rules.some((r) => {
-      if (isDomainMatched(targetHost, r.pattern)) return true;
-      if (r.children) {
-        return r.children.some((c) => isDomainMatched(targetHost, c.pattern));
-      }
-      return false;
-    });
 
     if (targetIsAlreadyRule) return;
 
-    const parentPattern = matchedParentRule.pattern;
+    // Tự động thêm domain gốc vào local storage
+    const newRule = { pattern: targetHost, active: true };
+    const nextRules = [...settings.rules, newRule];
+    await setProxySettings({ rules: nextRules });
+    await applyProxySettings();
 
-    // Retrieve and update the blocked subdomains record map in local storage
-    const blockedSubdomains = await getBlockedSubdomains();
+    console.log(
+      `[Auto-Pilot] Automatically added blocked root domain "${targetHost}" due to ${details.error}`,
+    );
 
-    const existingChildren = blockedSubdomains[parentPattern] || [];
-    if (!existingChildren.includes(targetHost)) {
-      const nextChildren = [...existingChildren, targetHost];
-      blockedSubdomains[parentPattern] = nextChildren;
-      await setBlockedSubdomains(blockedSubdomains);
-      console.log(
-        `[Blocked Root Domain Detected] ${targetHost} (resolved from ${targetHostRaw}) initiated by parent pattern ${parentPattern}`,
-      );
+    // Automatically reload the tab to retry via Tor immediately after a 200ms delay to allow Chrome to swap the PAC script in the network thread
+    if (details.tabId >= 0) {
+      setTimeout(() => {
+        chrome.tabs.reload(details.tabId);
+      }, 100);
     }
   } catch {
     // Gracefully ignore parsing issues
   }
 }, { urls: ["<all_urls>"] });
+
+// Listen for HTTP response headers to detect 403 Forbidden or 451 Legal blocks dynamically
+chrome.webRequest.onHeadersReceived.addListener((details) => {
+  // Execute async block inside a synchronous handler to satisfy TS type declarations
+  (async () => {
+    // Only target main frame pages to avoid sub-resources triggering reload loops
+    if (details.type !== "main_frame") return;
+
+    const statusCode = details.statusCode;
+    if (statusCode === 403 || statusCode === 451) {
+      try {
+        const targetUrl = new URL(details.url);
+        const targetHostRaw = targetUrl.hostname.toLowerCase();
+        const targetHost = getRootDomain(targetHostRaw);
+
+        // Skip special localhost or empty patterns
+        if (targetHost === "localhost" || targetHost === "127.0.0.1") return;
+
+        const settings = await getProxySettings();
+        if (!settings.autoPilot) return;
+
+        // Verify if this target domain is already handled by any existing rule
+        const targetIsAlreadyRule = settings.rules.some((r) =>
+          isDomainMatched(targetHost, r.pattern)
+        );
+
+        if (targetIsAlreadyRule) return;
+
+        // Auto-add the root domain as a flat active rule
+        const newRule = { pattern: targetHost, active: true };
+        const nextRules = [...settings.rules, newRule];
+        await setProxySettings({ rules: nextRules });
+        await applyProxySettings();
+
+        console.log(
+          `[Auto-Pilot] Automatically added root domain "${targetHost}" due to HTTP status ${statusCode}`,
+        );
+
+        // Automatically reload the tab to retry via Tor immediately after a 200ms delay to allow Chrome to swap the PAC script in the network thread
+        if (details.tabId >= 0) {
+          setTimeout(() => {
+            chrome.tabs.reload(details.tabId);
+          }, 100);
+        }
+      } catch {
+        // Gracefully ignore parsing issues
+      }
+    }
+  })();
+}, { urls: ["<all_urls>"] });
+
+// Listen to all outgoing requests to map initiator-to-target dependencies in session storage by tabId
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.tabId < 0) return;
+
+    try {
+      const targetUrl = new URL(details.url);
+      const targetHost = targetUrl.hostname.toLowerCase().trim();
+      const targetRoot = getRootDomain(targetHost);
+
+      // Skip localhost
+      if (targetRoot === "localhost" || targetRoot === "127.0.0.1") return;
+
+      (async () => {
+        const sessionData = await chrome.storage.session.get(["tabRelations"]);
+        const parsed = z.record(z.string(), z.array(z.string())).safeParse(
+          sessionData.tabRelations,
+        );
+        const tabRelations = parsed.success ? parsed.data : {};
+
+        const key = String(details.tabId);
+        const existingList = tabRelations[key] || [];
+
+        let changed = false;
+
+        if (details.type === "main_frame") {
+          // Reset list for a new navigation, but include the main frame root domain
+          tabRelations[key] = [targetRoot];
+          changed = true;
+        } else {
+          // For sub-resources, ONLY add the resolved root domain to keep the list clean and premium!
+          const updated = [...existingList];
+          if (!updated.includes(targetRoot)) {
+            updated.push(targetRoot);
+            changed = true;
+          }
+          if (changed) {
+            tabRelations[key] = updated;
+          }
+        }
+
+        if (changed) {
+          await chrome.storage.session.set({ tabRelations });
+        }
+      })();
+    } catch {
+      // Ignore URL parsing errors
+    }
+  },
+  { urls: ["<all_urls>"] },
+);

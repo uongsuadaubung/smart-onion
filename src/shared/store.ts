@@ -1,22 +1,16 @@
 import { createStore } from "solid-js/store";
-import {
-  BlockedSubdomainsSchema,
-  getBlockedSubdomains,
-  getProxySettings,
-  setBlockedSubdomains,
-  setProxySettings,
-} from "@/shared/storage.ts";
-import type { BlockedSubdomains, RuleItem } from "@/shared/storage.ts";
+import { getProxySettings, setProxySettings } from "@/shared/storage.ts";
+import type { RuleItem } from "@/shared/storage.ts";
 import { setLanguage, SupportLanguage } from "@/shared/i18n.ts";
+import { z } from "zod";
 
 export interface AppStore {
   isEnabled: boolean;
   rules: RuleItem[];
   searchTerm: string;
-  ruleInput: string;
   currentActiveTabDomain: string;
-  quickAddVisible: boolean;
-  blockedMap: BlockedSubdomains;
+  currentActiveTabId: number;
+  tabRelations: Record<string, string[]>;
   expandedRule: string | null;
   statusCardClass: string;
   statusDotClass: string;
@@ -29,16 +23,16 @@ export interface AppStore {
   view: "main" | "settings";
   language: "en" | "vi";
   proxyPort: number;
+  autoPilot: boolean;
 }
 
 export const [appStore, setAppStore] = createStore<AppStore>({
   isEnabled: false,
   rules: [],
   searchTerm: "",
-  ruleInput: "",
   currentActiveTabDomain: "",
-  quickAddVisible: false,
-  blockedMap: {},
+  currentActiveTabId: -1,
+  tabRelations: {},
   expandedRule: null,
   statusCardClass: "status-card",
   statusDotClass: "status-dot",
@@ -47,7 +41,10 @@ export const [appStore, setAppStore] = createStore<AppStore>({
   view: "main",
   language: "vi",
   proxyPort: 9050,
+  autoPilot: true,
 });
+
+const RelationsSchema = z.record(z.string(), z.array(z.string()));
 
 export const appStoreActions = {
   async init() {
@@ -58,6 +55,7 @@ export const appStoreActions = {
         rules: result.rules,
         language: result.language,
         proxyPort: result.proxyPort,
+        autoPilot: result.autoPilot,
       });
 
       // Synchronize language state with i18n module
@@ -65,8 +63,16 @@ export const appStoreActions = {
         result.language === "vi" ? SupportLanguage.Vi : SupportLanguage.En,
       );
 
-      // Load blocked subdomains from local storage
-      setAppStore("blockedMap", await getBlockedSubdomains());
+      // Load initial tab relations from session storage
+      try {
+        const sessionData = await chrome.storage.session.get("tabRelations");
+        const parsed = RelationsSchema.safeParse(sessionData.tabRelations);
+        if (parsed.success) {
+          setAppStore("tabRelations", parsed.data);
+        }
+      } catch (err) {
+        console.error("Failed to load session relations:", err);
+      }
 
       await appStoreActions.checkCurrentTab();
       appStoreActions.updateStatusStyles();
@@ -75,13 +81,50 @@ export const appStoreActions = {
       console.error("Failed to load initial settings:", err);
     }
 
-    // Sync blocked subdomains instantly if updated by the background worker
+    // Sync state instantly if updated by the background worker or other contexts
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName === "local" && changes.blockedSubdomains) {
-        setAppStore(
-          "blockedMap",
-          BlockedSubdomainsSchema.parse(changes.blockedSubdomains.newValue),
-        );
+      if (areaName === "local") {
+        if (changes.isEnabled) {
+          const val = changes.isEnabled.newValue;
+          if (typeof val === "boolean") {
+            setAppStore("isEnabled", val);
+            appStoreActions.updateStatusStyles();
+          }
+        }
+        if (changes.rules) {
+          const parsed = z.array(z.object({
+            pattern: z.string(),
+            active: z.boolean(),
+          })).safeParse(changes.rules.newValue);
+          if (parsed.success) {
+            setAppStore("rules", parsed.data);
+          }
+        }
+        if (changes.language) {
+          const val = changes.language.newValue;
+          if (val === "en" || val === "vi") {
+            setAppStore("language", val);
+            setLanguage(val === "vi" ? SupportLanguage.Vi : SupportLanguage.En);
+          }
+        }
+        if (changes.proxyPort) {
+          const val = changes.proxyPort.newValue;
+          if (typeof val === "number") {
+            setAppStore("proxyPort", val);
+          }
+        }
+        if (changes.autoPilot) {
+          const val = changes.autoPilot.newValue;
+          if (typeof val === "boolean") {
+            setAppStore("autoPilot", val);
+          }
+        }
+      }
+      if (areaName === "session" && changes.tabRelations) {
+        const parsed = RelationsSchema.safeParse(changes.tabRelations.newValue);
+        if (parsed.success) {
+          setAppStore("tabRelations", parsed.data);
+        }
       }
     });
   },
@@ -108,6 +151,12 @@ export const appStoreActions = {
         currentWindow: true,
       });
       if (!tabs || tabs.length === 0) return;
+
+      const tabId = tabs[0].id;
+      if (typeof tabId === "number") {
+        setAppStore("currentActiveTabId", tabId);
+      }
+
       const urlString = tabs[0].url;
 
       if (
@@ -118,24 +167,12 @@ export const appStoreActions = {
           const urlObj = new URL(urlString);
           const domain = urlObj.hostname;
           setAppStore("currentActiveTabDomain", domain);
-
-          const alreadyMatched = appStore.rules.some((rule) => {
-            const pattern = rule.pattern.toLowerCase();
-            const host = domain.toLowerCase();
-
-            return host === pattern || host.endsWith("." + pattern);
-          });
-
-          setAppStore("quickAddVisible", !alreadyMatched);
         } catch {
-          setAppStore("quickAddVisible", false);
+          // Gracefully ignore parsing errors
         }
-      } else {
-        setAppStore("quickAddVisible", false);
       }
     } catch (err) {
       console.error("Failed to query current tab:", err);
-      setAppStore("quickAddVisible", false);
     }
   },
 
@@ -192,45 +229,35 @@ export const appStoreActions = {
     setAppStore("searchTerm", term);
   },
 
-  setRuleInput(input: string) {
-    setAppStore("ruleInput", input);
-  },
-
   setExpandedRule(pattern: string | null) {
     setAppStore("expandedRule", pattern);
   },
 
-  async addRule() {
-    if (!isValidRuleInput(appStore.ruleInput)) return;
-    let rule = appStore.ruleInput.trim().toLowerCase();
+  async addCustomRule(pattern: string) {
+    const normalizedPattern = pattern.trim().toLowerCase();
+    if (!normalizedPattern) return;
+    if (appStore.rules.some((r) => r.pattern === normalizedPattern)) return;
 
-    if (rule.includes("://")) {
-      try {
-        const urlObj = new URL(rule);
-        rule = urlObj.hostname;
-      } catch {
-        rule = rule.replace(/(^\w+:|^)\/\//, "").split("/")[0];
-      }
-    }
-
-    if (appStore.rules.some((r) => r.pattern === rule)) {
-      const inputEl = document.getElementById("rule-input");
-      if (inputEl) {
-        inputEl.classList.add("input-error");
-        setTimeout(() => inputEl.classList.remove("input-error"), 500);
-      }
-      return;
-    }
-
-    const newRuleItem: RuleItem = { pattern: rule, active: true, children: [] };
+    const newRuleItem: RuleItem = { pattern: normalizedPattern, active: true };
     const nextRules = [newRuleItem, ...appStore.rules];
     setAppStore("rules", nextRules);
     try {
       await setProxySettings({ rules: nextRules });
-      setAppStore("ruleInput", "");
       await appStoreActions.checkCurrentTab();
+
+      // Auto-reload the active tab to apply proxy immediately after a 200ms delay to allow PAC script propagation
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      const tabId = tabs[0]?.id;
+      if (typeof tabId === "number") {
+        setTimeout(async () => {
+          await chrome.tabs.reload(tabId);
+        }, 200);
+      }
     } catch (err) {
-      console.error("Failed to add new rule to storage:", err);
+      console.error("Failed to add custom rule:", err);
     }
   },
 
@@ -263,117 +290,6 @@ export const appStoreActions = {
     }
   },
 
-  async addSubdomain(parentPattern: string, subdomain: string) {
-    const nextRules = appStore.rules.map((r) => {
-      if (r.pattern === parentPattern) {
-        if (r.children.some((c) => c.pattern === subdomain)) return r;
-        return {
-          ...r,
-          children: [...r.children, { pattern: subdomain, active: true }],
-        };
-      }
-      return r;
-    });
-    setAppStore("rules", nextRules);
-
-    const currentMap = { ...appStore.blockedMap };
-    if (currentMap[parentPattern]) {
-      currentMap[parentPattern] = currentMap[parentPattern].filter(
-        (s) => s !== subdomain,
-      );
-      if (currentMap[parentPattern].length === 0) {
-        delete currentMap[parentPattern];
-      }
-      setAppStore("blockedMap", currentMap);
-    }
-
-    try {
-      await setProxySettings({ rules: nextRules });
-      await setBlockedSubdomains(currentMap);
-      await appStoreActions.checkCurrentTab();
-    } catch (err) {
-      console.error("Failed to add subdomain rule:", err);
-    }
-  },
-
-  async toggleChildRuleActive(
-    parentPattern: string,
-    childPattern: string,
-    active: boolean,
-  ) {
-    const nextRules = appStore.rules.map((r) => {
-      if (r.pattern === parentPattern) {
-        return {
-          ...r,
-          children: r.children.map((c) =>
-            c.pattern === childPattern ? { ...c, active } : c
-          ),
-        };
-      }
-      return r;
-    });
-    setAppStore("rules", nextRules);
-    try {
-      await setProxySettings({ rules: nextRules });
-    } catch (err) {
-      console.error("Failed to toggle child rule active state:", err);
-    }
-  },
-
-  deleteChildRule(
-    parentPattern: string,
-    childPattern: string,
-    childEl: HTMLLIElement,
-  ) {
-    childEl.classList.add("fade-out");
-    setTimeout(async () => {
-      const nextRules = appStore.rules.map((r) => {
-        if (r.pattern === parentPattern) {
-          return {
-            ...r,
-            children: r.children.filter((c) => c.pattern !== childPattern),
-          };
-        }
-        return r;
-      });
-      setAppStore("rules", nextRules);
-      try {
-        await setProxySettings({ rules: nextRules });
-        await appStoreActions.checkCurrentTab();
-      } catch (err) {
-        console.error("Failed to delete child rule:", err);
-      }
-    }, 200);
-  },
-
-  async quickAdd() {
-    const domain = appStore.currentActiveTabDomain;
-    if (domain && !appStore.rules.some((r) => r.pattern === domain)) {
-      const newRuleItem: RuleItem = {
-        pattern: domain,
-        active: true,
-        children: [],
-      };
-      const nextRules = [newRuleItem, ...appStore.rules];
-      setAppStore("rules", nextRules);
-      try {
-        await setProxySettings({ rules: nextRules });
-        setAppStore("quickAddVisible", false);
-
-        // Reload current active tab so the new proxy rule takes effect immediately!
-        const tabs = await chrome.tabs.query({
-          active: true,
-          currentWindow: true,
-        });
-        if (tabs && tabs[0] && tabs[0].id !== undefined) {
-          await chrome.tabs.reload(tabs[0].id);
-        }
-      } catch (err) {
-        console.error("Failed to save quick add rule to storage:", err);
-      }
-    }
-  },
-
   navigate(newView: "main" | "settings") {
     setAppStore("view", newView);
   },
@@ -398,46 +314,13 @@ export const appStoreActions = {
       console.error("Failed to save proxy port to storage:", err);
     }
   },
-};
 
-export function isValidRuleInput(input: string): boolean {
-  let val = input.trim().toLowerCase();
-  if (!val) return false;
-
-  // Handle full URL / path / query / fragment
-  if (val.includes("://")) {
+  async updateAutoPilot(value: boolean) {
+    setAppStore("autoPilot", value);
     try {
-      const urlObj = new URL(val);
-      val = urlObj.hostname;
-    } catch {
-      val = val.replace(/(^\w+:|^)\/\//, "").split("/")[0];
+      await setProxySettings({ autoPilot: value });
+    } catch (err) {
+      console.error("Failed to save auto-pilot setting to storage:", err);
     }
-  } else {
-    val = val.split("/")[0].split("?")[0].split("#")[0];
-  }
-
-  // Strip port if present
-  if (val.includes(":")) {
-    val = val.split(":")[0];
-  }
-
-  // A valid domain:
-  // Only allows alphanumeric characters, dots, hyphens, and underscores
-  if (!/^[a-z0-9.\-_]+$/i.test(val)) return false;
-
-  // Must not have consecutive dots, and must contain at least one valid domain label character
-  if (val.includes("..")) return false;
-  if (/^[.\-_]+$/.test(val)) return false;
-
-  // A valid domain name must contain at least one dot (.), or be exactly 'localhost'
-  const hasDot = val.includes(".");
-  const isLocalhost = val === "localhost";
-
-  if (!hasDot && !isLocalhost) {
-    return false;
-  }
-
-  return true;
-}
-
-
+  },
+};

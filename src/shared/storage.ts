@@ -1,19 +1,9 @@
 import { z } from "zod";
 
-// Zod Schema for individual child rule
-export const ChildRuleSchema = z.object({
-  pattern: z.string(),
-  active: z.boolean().default(true),
-});
-
-// Infer the ChildRule type
-export type ChildRule = z.infer<typeof ChildRuleSchema>;
-
-// Zod Schema for individual togglable pattern rule (supporting nested children rules)
+// Zod Schema for individual togglable pattern rule (flat)
 export const RuleItemSchema = z.object({
   pattern: z.string(),
   active: z.boolean().default(true),
-  children: z.array(ChildRuleSchema).default([]),
 });
 
 // Infer the RuleItem type
@@ -24,20 +14,14 @@ export const ProxySettingsSchema = z.object({
   rules: z.array(RuleItemSchema).default([]),
   language: z.enum(["en", "vi"]).default("en"),
   proxyPort: z.number().int().min(1).max(65535).default(9050),
+  autoPilot: z.boolean().default(true),
 });
 
 // Infer the ProxySettings type directly from the schema
 export type ProxySettings = z.infer<typeof ProxySettingsSchema>;
 
-// Zod Schema to parse and validate blocked subdomains relations
-export const BlockedSubdomainsSchema = z.record(z.string(), z.array(z.string()))
-  .default({});
-
-// Infer the BlockedSubdomains type
-export type BlockedSubdomains = z.infer<typeof BlockedSubdomainsSchema>;
-
 /**
- * Retrieves and validates proxy settings from chrome storage using Zod.
+ * Retrieves and validates proxy settings from local storage.
  * @returns Strongly typed ProxySettings
  */
 export async function getProxySettings(): Promise<ProxySettings> {
@@ -46,12 +30,13 @@ export async function getProxySettings(): Promise<ProxySettings> {
     "rules",
     "language",
     "proxyPort",
+    "autoPilot",
   ]);
   return ProxySettingsSchema.parse(rawData);
 }
 
 /**
- * Saves proxy settings to chrome storage in a centralized, type-safe manner.
+ * Saves proxy settings to local storage.
  * @param settings Partial proxy settings to save
  */
 export async function setProxySettings(
@@ -61,24 +46,7 @@ export async function setProxySettings(
 }
 
 /**
- * Retrieves and validates the blocked subdomains map from chrome storage.
- */
-export async function getBlockedSubdomains(): Promise<BlockedSubdomains> {
-  const rawData = await chrome.storage.local.get(["blockedSubdomains"]);
-  return BlockedSubdomainsSchema.parse(rawData.blockedSubdomains);
-}
-
-/**
- * Saves the blocked subdomains map to chrome storage in a centralized, type-safe manner.
- */
-export async function setBlockedSubdomains(
-  blockedSubdomains: BlockedSubdomains,
-): Promise<void> {
-  await chrome.storage.local.set({ blockedSubdomains });
-}
-
-/**
- * centralizes settings initialization to ensure defaults are safely set.
+ * Centralizes settings initialization to ensure defaults are safely set.
  */
 export async function initializeDefaultSettings(): Promise<void> {
   const rawData = await chrome.storage.local.get([
@@ -86,11 +54,13 @@ export async function initializeDefaultSettings(): Promise<void> {
     "rules",
     "language",
     "proxyPort",
+    "autoPilot",
   ]);
 
   if (
     rawData.isEnabled === undefined || rawData.rules === undefined ||
-    rawData.language === undefined || rawData.proxyPort === undefined
+    rawData.language === undefined || rawData.proxyPort === undefined ||
+    rawData.autoPilot === undefined
   ) {
     const validatedDefaults = ProxySettingsSchema.parse(rawData);
     await setProxySettings(validatedDefaults);
@@ -105,7 +75,7 @@ export function getRootDomain(host: string): string {
   const parts = host.toLowerCase().split(".");
   if (parts.length <= 2) return host;
 
-  // Common multi-part country suffixes
+  // Common double country suffixes
   const commonDoubleSuffixes = [
     "co.uk",
     "me.uk",

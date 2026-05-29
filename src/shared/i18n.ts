@@ -16,6 +16,9 @@ const translations = {
     input_placeholder: "Enter domain (e.g. domain.com)",
     rules_list_title: "Routing rules",
     search_placeholder: "Search rules...",
+    list_active_title: "Active on current site",
+    list_other_title: "Other whitelisted sites",
+    rule_add_btn: "[+] Add",
     empty_no_results: "No results found",
     empty_no_results_desc: 'No rules match the search keyword "{term}".',
     empty_no_rules: "No rules yet",
@@ -30,6 +33,9 @@ const translations = {
     settings_title: "Settings",
     lang_label: "Language",
     port_label: "Tor SOCKS5 Port",
+    setting_autopilot_label: "Auto-Pilot Bypass",
+    setting_autopilot_desc:
+      "Automatically add root domains to proxy routing rules when network connection failures or HTTP status blocks (403/451) are intercepted.",
     port_help_note:
       "🔒 Proxy host is locked to 127.0.0.1 for maximum security. Ensure this port matches the SocksPort inside your torrc configuration.",
     btn_go_back: "Back",
@@ -91,6 +97,7 @@ const translations = {
       "How do I run Tor Expert Bundle automatically at Windows startup?",
     guide_faq_a2:
       "You can easily copy the 'run-tor.bat' launch script (or a shortcut of it) into your Windows Startup folder (press Win + R, type 'shell:startup', and hit Enter) to automatically boot the Tor service on system startup.",
+    guide_faq_q3: "Can I customize the SOCKS5 proxy port?",
     guide_faq_a3:
       "Yes! You can customize the SOCKS5 proxy port under the Settings menu (it defaults to 9050 to match the official Tor client). The proxy host address is locked to 127.0.0.1 (localhost) to guarantee absolute local security and prevent SOCKS5 traffic or DNS from leaking over the network.",
     guide_sec_title: "Security & Privacy Guarantee",
@@ -113,6 +120,9 @@ const translations = {
     input_placeholder: "Nhập tên miền (ví dụ: domain.com)",
     rules_list_title: "Danh sách quy tắc",
     search_placeholder: "Tìm kiếm quy tắc...",
+    list_active_title: "Hoạt động ở trang hiện tại",
+    list_other_title: "Các trang web khác",
+    rule_add_btn: "[+] Thêm",
     empty_no_results: "Không tìm thấy kết quả",
     empty_no_results_desc: 'Không có quy tắc nào khớp với từ khóa "{term}".',
     empty_no_rules: "Chưa có quy tắc nào",
@@ -126,6 +136,9 @@ const translations = {
     subdomain_add_btn: "[+] Thêm",
     settings_title: "Cài đặt",
     lang_label: "Ngôn ngữ",
+    setting_autopilot_label: "Tự động vượt tường lửa",
+    setting_autopilot_desc:
+      "Tự động thêm tên miền vào danh sách proxy khi phát hiện sự cố mất kết nối mạng hoặc lỗi máy chủ chặn truy cập (403/451).",
     port_label: "Cổng SOCKS5 Tor",
     port_help_note:
       "🔒 Địa chỉ Proxy được khóa cố định ở 127.0.0.1 để bảo mật tối đa. Hãy đảm bảo cổng này khớp với SocksPort trong cấu hình torrc của bạn.",
@@ -188,6 +201,7 @@ const translations = {
     guide_faq_q2: "Làm thế nào để chạy Tor Expert Bundle tự động cùng Windows?",
     guide_faq_a2:
       "Bạn có thể sao chép tệp khởi chạy 'run-tor.bat' (hoặc shortcut của nó) vào thư mục Startup của Windows (bấm tổ hợp phím Win + R, nhập 'shell:startup' và nhấn Enter) để dịch vụ tự động chạy ngầm mỗi khi khởi động máy.",
+    guide_faq_q3: "Tôi có thể tùy chỉnh cổng proxy SOCKS5 không?",
     guide_faq_a3:
       "Có! Bạn có thể dễ dàng tùy chỉnh cổng SOCKS5 trong phần Cài đặt (mặc định là 9050 để khớp với Tor client chính thức). Địa chỉ máy chủ proxy (host) được khóa cố định ở 127.0.0.1 (localhost) nhằm đảm bảo an toàn tuyệt đối, tránh rò rỉ dữ liệu hoặc DNS qua mạng.",
     guide_sec_title: "Cam kết An toàn & Bảo mật",
