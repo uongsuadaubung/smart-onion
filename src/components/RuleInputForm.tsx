@@ -1,4 +1,8 @@
 import AddIcon from "@/components/icons/AddIcon.tsx";
+import { t } from "@/shared/i18n.ts";
+import { isValidRuleInput } from "@/shared/store.ts";
+
+
 
 interface RuleInputFormProps {
   value: string;
@@ -13,7 +17,7 @@ export default function RuleInputForm(props: RuleInputFormProps) {
         <input
           type="text"
           id="rule-input"
-          placeholder="Nhập tên miền (ví dụ: *.domain.*)"
+          placeholder={t("input_placeholder")}
           autocomplete="off"
           value={props.value}
           onInput={(e) => props.onInput(e.currentTarget.value)}
@@ -24,6 +28,7 @@ export default function RuleInputForm(props: RuleInputFormProps) {
           id="add-rule-btn"
           class="glow-button"
           onClick={props.onAdd}
+          disabled={!isValidRuleInput(props.value)}
         >
           <AddIcon />
         </button>

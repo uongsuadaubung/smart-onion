@@ -245,7 +245,7 @@ async function applyProxySettings(): Promise<void> {
 
 /**
  * Dynamically generates a valid Proxy Auto-Config (PAC) script.
- * Supports exact domain matching, subdomain matching, and general wildcards.
+ * Supports exact domain matching and automatic subdomain matching.
  *
  * @param rules Array of user-defined matching patterns
  * @returns Fully functional JavaScript PAC script

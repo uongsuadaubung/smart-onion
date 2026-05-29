@@ -1,7 +1,6 @@
 import { For, Show } from "solid-js";
 import type { RuleItem } from "@/shared/storage.ts";
 import GlobeIcon from "@/components/icons/GlobeIcon.tsx";
-import WildcardIcon from "@/components/icons/WildcardIcon.tsx";
 import DeleteIcon from "@/components/icons/DeleteIcon.tsx";
 import { t } from "@/shared/i18n.ts";
 
@@ -19,8 +18,6 @@ interface RuleItemViewProps {
 
 export default function RuleItemView(props: RuleItemViewProps) {
   let itemRef: HTMLLIElement | undefined;
-
-  const isWildcard = () => props.rule.pattern.includes("*");
 
   const hasChildrenOrErrors = () => {
     const hasErrors = (props.blockedSubdomains?.length || 0) > 0;
@@ -50,12 +47,7 @@ export default function RuleItemView(props: RuleItemViewProps) {
             />
             <span class="rule-slider"></span>
           </label>
-          <Show
-            when={isWildcard()}
-            fallback={<GlobeIcon />}
-          >
-            <WildcardIcon />
-          </Show>
+          <GlobeIcon />
           <span
             class="rule-text"
             title={props.rule.pattern}

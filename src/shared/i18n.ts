@@ -13,7 +13,7 @@ const translations = {
     status_connected: "Connected",
     status_disconnected: "Disconnected",
     quick_add_prefix: "Quick add this page: ",
-    input_placeholder: "Enter domain (e.g. *.domain.*)",
+    input_placeholder: "Enter domain (e.g. domain.com)",
     rules_list_title: "Routing rules",
     search_placeholder: "Search rules...",
     empty_no_results: "No results found",
@@ -48,7 +48,7 @@ const translations = {
       "Extract the downloaded archive. On Windows, run the 'tor.exe' binary inside the 'tor' folder. To run it persistently in the background, open command prompt as Administrator and run: tor.exe --service install. It starts a SOCKS5 proxy server at 127.0.0.1:9050.",
     guide_step3_title: "Step 3: Toggle SmartOnion ON",
     guide_step3_desc:
-      "Open the SmartOnion popup dashboard, toggle the master switch ON, and add the websites you want to route via Tor (e.g. *.medium.com).",
+      "Open the SmartOnion popup dashboard, toggle the master switch ON, and add the websites you want to route via Tor (e.g. medium.com).",
     guide_status_checking: "Loading connection settings...",
     guide_note:
       "Tip: Unlike Tor Browser, Tor Expert Bundle runs quietly in the background as a lightweight system service, consuming minimal memory and CPU!",
@@ -110,7 +110,7 @@ const translations = {
     status_connected: "Đã kết nối",
     status_disconnected: "Mất kết nối",
     quick_add_prefix: "Thêm nhanh trang này: ",
-    input_placeholder: "Nhập tên miền (ví dụ: *.domain.*)",
+    input_placeholder: "Nhập tên miền (ví dụ: domain.com)",
     rules_list_title: "Danh sách quy tắc",
     search_placeholder: "Tìm kiếm quy tắc...",
     empty_no_results: "Không tìm thấy kết quả",
@@ -145,7 +145,7 @@ const translations = {
       "Giải nén tệp vừa tải. Trên Windows, chạy tệp 'tor.exe' trong thư mục 'tor'. Để cài đặt chạy ngầm vĩnh viễn, mở cmd với quyền Admin và chạy lệnh: tor.exe --service install. Máy chủ proxy SOCKS5 sẽ chạy tại 127.0.0.1:9050.",
     guide_step3_title: "Bước 3: Bật công tắc SmartOnion",
     guide_step3_desc:
-      "Mở bảng điều khiển SmartOnion, bật công tắc tổng sang ON và thêm các trang web bạn muốn đi qua Tor (ví dụ: *.medium.com).",
+      "Mở bảng điều khiển SmartOnion, bật công tắc tổng sang ON và thêm các trang web bạn muốn đi qua Tor (ví dụ: medium.com).",
     guide_status_checking: "Đang tải cài đặt kết nối...",
     guide_note:
       "Mẹo nhỏ: Khác với Tor Browser, Tor Expert Bundle chạy cực kỳ nhẹ nhàng dưới dạng dịch vụ hệ thống ngầm, không tốn tài nguyên RAM và CPU của máy tính!",

@@ -1,5 +1,7 @@
 import { Show } from "solid-js";
 import QuickAddIcon from "@/components/icons/QuickAddIcon.tsx";
+import { t } from "@/shared/i18n.ts";
+
 
 interface QuickAddBannerProps {
   visible: boolean;
@@ -19,7 +21,7 @@ export default function QuickAddBanner(props: QuickAddBannerProps) {
         >
           <QuickAddIcon />
           <span>
-            Thêm nhanh trang này:{" "}
+            {t("quick_add_prefix")}
             <strong id="current-domain">{props.domain}</strong>
           </span>
         </button>

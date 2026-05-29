@@ -398,6 +398,15 @@ input:checked + .slider:before {
   transform: translateY(1px);
 }
 
+.glow-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  filter: none !important;
+  pointer-events: none;
+}
+
+
 .input-help {
   font-size: 11px;
   color: var(--text-muted);

@@ -201,10 +201,10 @@ export const appStoreActions = {
   },
 
   async addRule() {
+    if (!isValidRuleInput(appStore.ruleInput)) return;
     let rule = appStore.ruleInput.trim().toLowerCase();
-    if (!rule) return;
 
-    if (rule.includes("://") && !rule.includes("*")) {
+    if (rule.includes("://")) {
       try {
         const urlObj = new URL(rule);
         rule = urlObj.hostname;
@@ -399,3 +399,45 @@ export const appStoreActions = {
     }
   },
 };
+
+export function isValidRuleInput(input: string): boolean {
+  let val = input.trim().toLowerCase();
+  if (!val) return false;
+
+  // Handle full URL / path / query / fragment
+  if (val.includes("://")) {
+    try {
+      const urlObj = new URL(val);
+      val = urlObj.hostname;
+    } catch {
+      val = val.replace(/(^\w+:|^)\/\//, "").split("/")[0];
+    }
+  } else {
+    val = val.split("/")[0].split("?")[0].split("#")[0];
+  }
+
+  // Strip port if present
+  if (val.includes(":")) {
+    val = val.split(":")[0];
+  }
+
+  // A valid domain:
+  // Only allows alphanumeric characters, dots, hyphens, and underscores
+  if (!/^[a-z0-9.\-_]+$/i.test(val)) return false;
+
+  // Must not have consecutive dots, and must contain at least one valid domain label character
+  if (val.includes("..")) return false;
+  if (/^[.\-_]+$/.test(val)) return false;
+
+  // A valid domain name must contain at least one dot (.), or be exactly 'localhost'
+  const hasDot = val.includes(".");
+  const isLocalhost = val === "localhost";
+
+  if (!hasDot && !isLocalhost) {
+    return false;
+  }
+
+  return true;
+}
+
+
